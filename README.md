@@ -1,4 +1,4 @@
-# TMANomaly
+# TMANomaly: Time-Series Mutual Adversarial Networks for Industrial Anomaly Detection
 
 ## Abstract
 
