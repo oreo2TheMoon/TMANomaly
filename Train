@@ -1,0 +1,92 @@
+import os
+
+import pandas as pd
+import numpy as np
+import torch
+
+from Model import *
+from Function import *
+from Engine import *
+
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+Train_path = r'data/swat/Swat_onehot.csv'
+Test_path = r'data/swat/Swat_onehot.csv'
+
+batch_size = 64
+epoch = 1000
+lr = 0.000005
+w_size = 30
+
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+RcSeq1 = RcSeqB(77, w_size, 77, 2).to(device)
+RcSeq2 = RcSeqB(77, w_size, 77, 2).to(device)
+
+
+adv_lf = nn.BCELoss().to(device)
+con_lf = nn.MSELoss().to(device)
+opt1 = torch.optim.Adam(RcSeq1.parameters(), lr)
+opt2 = torch.optim.Adam(RcSeq2.parameters(), lr)
+
+train_data, train_label = load_data(Train_path, window_size=w_size, window_step=30, for_train=1,  sub0=0, sub=0.6)
+test_data, test_label = load_data(Test_path, window_size=w_size, window_step=30, for_train=0, sub0=0.5, sub=0.9)
+
+
+print(train_data.shape,  train_label.shape, test_data.shape, test_label.shape)
+
+
+train = MyDataSet(train_data, train_label)
+train_set = DataLoader(train, batch_size=batch_size, shuffle=True, drop_last=True)
+
+test = MyDataSet(test_data, test_label)
+test_set = DataLoader(test, batch_size=batch_size, shuffle=False, drop_last=True)
+
+torch.manual_seed(777)
+RcSeq1.apply(init_weights)
+RcSeq2.apply(init_weights)
+
+real_label = torch.ones(batch_size, w_size, 1).to(device)
+fake_label = torch.zeros(batch_size, w_size, 1).to(device)
+
+ACC = 0
+
+for e in range(epoch):
+    n = 0
+    for x, y in train_set:
+        x = x.float().to(device)
+        # x = x.to(device)
+
+
+        # train_one_iterB(RcSeq1, RcSeq2, opt1, opt2, adv_lf, con_lf, real_label, fake_label, x)
+        # train_one_iterB(RcSeq2, RcSeq1, opt2, opt1, adv_lf, con_lf, real_label, fake_label, x)
+
+
+        if n == 0:
+            train_one_iterB(RcSeq1, RcSeq2, opt1, opt2, adv_lf, con_lf, real_label, fake_label, x)
+            train_one_iterB(RcSeq2, RcSeq1, opt2, opt1, adv_lf, con_lf, real_label, fake_label, x)
+            n += 1
+
+        else:
+            train_one_iterB(RcSeq2, RcSeq1, opt2, opt1, adv_lf, con_lf, real_label, fake_label, x)
+            train_one_iterB(RcSeq1, RcSeq2, opt1, opt2, adv_lf, con_lf, real_label, fake_label, x)
+            n -= 1
+        #
+        # i = np.random.randint(0, 2, size=1)
+        # if i == 0:
+        #   train_one_iterB(RcSeq1, RcSeq2, opt1, opt2, adv_lf, con_lf, real_label, fake_label, x)
+        # else:
+        #   train_one_iterB(RcSeq2, RcSeq1, opt2, opt1, adv_lf, con_lf, real_label, fake_label, x)
+        #
+        # i = np.random.randint(0, 2, size=1)
+        # if i == 0:
+        #   train_one_iterB(RcSeq1, RcSeq2, opt1, opt2, adv_lf, con_lf, real_label, fake_label, x)
+        # else:
+        #   train_one_iterB(RcSeq2, RcSeq1, opt2, opt1, adv_lf, con_lf, real_label, fake_label, x)
+
+    if e % 15 == 0 : # and e != 0:
+      acc, recall, recall1, precision,F1, L, auc = evaluate(RcSeq1, RcSeq2, test_set, th=0.25, batch_size=batch_size, w_size=w_size)
+      if acc > ACC:
+            torch.save(RcSeq1, 'model_v2/Rec1.pth')
+            torch.save(RcSeq1, 'model_v2/Rec2.pth')
+      print('| ----------------epoch:{}----------------- |'.format(e))
+      print('acc : {:.4f}, recall : {:.4f}, Trecall : {:.4f} pre : {:.4f}, F1 :{:.4f}, Loss :{:.4f}, AUC : {:.4f}'.format(acc, recall, recall1, precision,F1, L,auc))
