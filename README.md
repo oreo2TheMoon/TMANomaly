@@ -18,9 +18,8 @@ List any contributors to the project and any external resources used.
 
 Include information on the project's license. 
 
-## Contact
+## Data
 
-Include contact information for the project, including email addresses and social media profiles. 
 
 ## Acknowledgments
 
