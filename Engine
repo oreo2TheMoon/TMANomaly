@@ -1,0 +1,145 @@
+import numpy as np
+import torch.nn as nn
+from torch.utils.data import DataLoader
+import torch
+from sklearn.metrics import auc, roc_curve
+
+def train_one_iter(G: nn.Module,
+                   D: nn.Module,
+                   opt_G,
+                   opt_D,
+                   loss_function,
+                   x,):
+    D.train()
+    G.train()
+
+    fake_x = G(x)
+    fake_x_d = D(fake_x)
+    x_d = D(x)
+
+    real_d_loss = loss_function(x_d, x)
+    fake_d_loss = loss_function(fake_x, fake_x_d)
+
+    total_loss = 0.5 * real_d_loss + 0.5 * fake_d_loss
+    D.zero_grad()
+    total_loss.backward()
+    opt_D.step()
+
+# --------- train G ------------
+    D.train()
+    G.train()
+
+    fake_x = G(x)
+    fake_x_d = D(fake_x)
+    x_d = D(fake_x)
+
+    adv_loss = loss_function(fake_x_d, x_d)
+    con_loss = loss_function(fake_x, x)
+
+    total_loss = con_loss * 10 + adv_loss * 1
+    total_loss.backward()
+    opt_G.step()
+
+
+def evaluate(R1: nn.Module, R2: nn.Module, dataset: DataLoader, alpha=0.5, th=0.01, batch_size=64, w_size=100):
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    P, N, TP, TN, FP, FN = 0, 0, 0, 0, 0, 0
+    LF = nn.L1Loss()
+    LOSS = []
+    Y = []
+    for x, y in dataset:
+        with torch.no_grad():
+            # x = x.to(device)
+            x = x.float().to(device)
+            x1, _ = R1(x)
+            x2, _ = R2(x)
+
+        x1 = x1.cpu()
+        x2 = x2.cpu()
+        x = x.cpu()
+        y = y.cpu()
+
+        X = x1 * alpha + x2 * (1-alpha)
+        loss = np.zeros((batch_size, w_size))
+        # print(loss.shape)
+
+        for i in range(X.size()[0]):
+            for j in range(X.size()[1]):
+                loss[i][j] = LF(X[i][j], x[i][j])
+        LOSS.append(loss)
+        Y.append(y.numpy())
+
+    LOSS = np.array(LOSS).reshape(-1)
+    pre = np.zeros(LOSS.shape[0])
+
+    Y = np.array(Y).reshape(-1)
+
+    for i in range(LOSS.shape[0]):
+        if LOSS[i] > th:
+            pre[i] = 1
+            if Y[i] == 1:
+                TP += 1
+                P += 1
+            else: FP += 1
+        else:
+
+            if Y[i] == 0:
+                TN += 1
+                N += 1
+            else: FN += 1
+
+    acc = (TP + TN) / (P + N  + 1e-10)
+    Precision = TP / (TP + FP+1e-10)
+    Recall = TP / (TP + FN+1e-10)
+    Recall1 = FN/ (N + 1e-10)
+    # FPR = FP / (FP + TN)
+    # FNR = FN / (TP + FN)
+    F1 = 2 * Recall * Precision / (Recall + Precision + 1e-10)
+    # TNR = TN / (TN + FP)
+    # return P, N, TP, FP, TN, FN
+    # return acc, Precision, F1, Recall, FNR, TNR, FPR
+
+    fpr1, tpr1, threshold = roc_curve(pre, Y, pos_label=1)
+    AUC = auc(fpr1, tpr1)
+    return acc, Recall, Recall1, Precision, F1,np.median(LOSS), AUC
+
+
+def train_one_iterB(G: nn.Module,
+                    D: nn.Module,
+                    opt_G,
+                    opt_D,
+                    adv_lf,
+                    con_lf,
+                    real_label,
+                    fake_label,
+                    x,):
+    D.train()
+    G.train()
+
+    fake_x, _ = G(x)
+    _, fake_x_d = D(fake_x)
+    _, x_d = D(x)
+
+    real_d_loss = adv_lf(x_d, real_label)
+    fake_d_loss = adv_lf(fake_x_d, fake_label)
+
+    total_loss = 0.5 * real_d_loss + 0.5 * fake_d_loss
+    D.zero_grad()
+    total_loss.backward()
+    opt_D.step()
+
+# --------- train G ------------
+    D.train()
+    G.train()
+
+    fake_x, _ = G(x)
+    # fake_x_d = D(fake_x)
+    _, x_d = D(fake_x)
+
+    adv_loss = adv_lf(x_d, real_label)
+    con_loss = con_lf(fake_x, x)
+
+    total_loss = con_loss * 1 + adv_loss * 1
+    total_loss.backward()
+    opt_G.step()
+
